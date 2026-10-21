@@ -1099,7 +1099,8 @@ func (w *window) Configure(options []Option) {
 			C.xdg_toplevel_unset_maximized(w.topLvl)
 		}
 		w.setTitle(prev, cnf)
-		if prev.Size != cnf.Size {
+		resized := prev.Size != cnf.Size
+		if resized {
 			w.config.Size = cnf.Size
 			w.config.Size.Y += int(w.decoHeight()) * w.scale
 			w.size = w.config.Size.Div(w.scale)
@@ -1107,6 +1108,14 @@ func (w *window) Configure(options []Option) {
 		w.config.MinSize = cnf.MinSize
 		w.config.MaxSize = cnf.MaxSize
 		w.setWindowConstraints()
+		if resized {
+			// Resize the EGL surface now. Only a sync frame does, and the
+			// compositor does not always configure the window after a size
+			// change the client asked for, so the surface kept its old size
+			// while the frame drew the new one and the content sat offset
+			// from the pointer.
+			w.draw(true)
+		}
 	}
 	w.ProcessEvent(ConfigEvent{Config: w.config})
 }
