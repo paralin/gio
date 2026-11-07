@@ -59,6 +59,10 @@ type window struct {
 	// frameDims stores the last seen window frame width and height.
 	frameDims image.Point
 	loop      *eventLoop
+
+	// pointerFlags holds the flags of the most recent pointer message. It
+	// lets pointerInfo derive button changes when GetPointerInfo fails.
+	pointerFlags windows.POINTER_INFO_POINTER_FLAGS
 }
 
 const _WM_WAKEUP = windows.WM_USER + iota
@@ -336,10 +340,7 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 		windows.WM_POINTERLEAVE, windows.WM_POINTERCAPTURECHANGED,
 		windows.WM_NCPOINTERUPDATE, windows.WM_NCPOINTERDOWN, windows.WM_NCPOINTERUP:
 		pid := getPointerIDwParam(wParam)
-		pi, err := windows.GetPointerInfo(uint32(pid))
-		if err != nil {
-			panic(err)
-		}
+		pi := w.pointerInfo(pid, wParam)
 
 		w.pointerUpdate(pi, pid, pointerKind(msg, pi), lParam)
 	case windows.WM_CANCELMODE:
@@ -679,6 +680,51 @@ func pointerKind(msg uint32, pi windows.PointerInfo) pointer.Kind {
 	}
 }
 
+// pointerInfo returns the PointerInfo for a WM_POINTER message. Wine sends
+// WM_POINTER messages after EnableMouseInPointer but stubs GetPointerInfo, so
+// when the call fails the info is built from the message flags in the high
+// word of wParam, which share their values with the low bits of the
+// POINTER_FLAG constants. The button change is the difference from the flags
+// of the previous message.
+func (w *window) pointerInfo(pid pointer.ID, wParam uintptr) windows.PointerInfo {
+	pi, err := windows.GetPointerInfo(uint32(pid))
+	if err != nil {
+		pi = windows.PointerInfo{
+			PointerType:  windows.PT_MOUSE,
+			PointerId:    uint32(pid),
+			PointerFlags: windows.POINTER_INFO_POINTER_FLAGS(uint16(wParam >> 16)),
+		}
+		pi.ButtonChangeType = pointerButtonChange(w.pointerFlags, pi.PointerFlags)
+	}
+	w.pointerFlags = pi.PointerFlags
+	return pi
+}
+
+// pointerButtonChange returns the first button that differs between the
+// prev and next pointer flags.
+func pointerButtonChange(prev, next windows.POINTER_INFO_POINTER_FLAGS) windows.POINTER_BUTTON_CHANGE_TYPE {
+	buttons := [...]struct {
+		flag     windows.POINTER_INFO_POINTER_FLAGS
+		down, up windows.POINTER_BUTTON_CHANGE_TYPE
+	}{
+		{windows.POINTER_FLAG_FIRSTBUTTON, windows.POINTER_CHANGE_FIRSTBUTTON_DOWN, windows.POINTER_CHANGE_FIRSTBUTTON_UP},
+		{windows.POINTER_FLAG_SECONDBUTTON, windows.POINTER_CHANGE_SECONDBUTTON_DOWN, windows.POINTER_CHANGE_SECONDBUTTON_UP},
+		{windows.POINTER_FLAG_THIRDBUTTON, windows.POINTER_CHANGE_THIRDBUTTON_DOWN, windows.POINTER_CHANGE_THIRDBUTTON_UP},
+		{windows.POINTER_FLAG_FOURTHBUTTON, windows.POINTER_CHANGE_FOURTHBUTTON_DOWN, windows.POINTER_CHANGE_FOURTHBUTTON_UP},
+		{windows.POINTER_FLAG_FIFTHBUTTON, windows.POINTER_CHANGE_FIFTHBUTTON_DOWN, windows.POINTER_CHANGE_FIFTHBUTTON_UP},
+	}
+	for _, b := range buttons {
+		was, is := prev&b.flag != 0, next&b.flag != 0
+		switch {
+		case is && !was:
+			return b.down
+		case was && !is:
+			return b.up
+		}
+	}
+	return windows.POINTER_CHANGE_NONE
+}
+
 func (w *window) pointerUpdate(pi windows.PointerInfo, pid pointer.ID, kind pointer.Kind, lParam uintptr) {
 	if !w.config.Focused && kind != pointer.Leave {
 		windows.SetFocus(w.hwnd)
@@ -714,7 +760,13 @@ func (w *window) scrollEvent(wParam, lParam uintptr, horizontal bool, kmods key.
 	pid := getPointerIDwParam(wParam)
 	pi, err := windows.GetPointerInfo(uint32(pid))
 	if err != nil {
-		panic(err)
+		// The high word of a wheel message holds the wheel delta, not
+		// pointer flags, so reuse the buttons from the last pointer message.
+		pi = windows.PointerInfo{
+			PointerType:  windows.PT_MOUSE,
+			PointerId:    uint32(pid),
+			PointerFlags: w.pointerFlags,
+		}
 	}
 
 	x, y := coordsFromlParam(lParam)
