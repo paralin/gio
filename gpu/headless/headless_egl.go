@@ -10,6 +10,6 @@ import (
 
 func init() {
 	newContextPrimary = func() (context, error) {
-		return egl.NewContext(egl.EGL_DEFAULT_DISPLAY)
+		return egl.NewContext(egl.PlatformUnknown, egl.EGL_DEFAULT_DISPLAY)
 	}
 }

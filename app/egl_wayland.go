@@ -31,7 +31,7 @@ type wlContext struct {
 func init() {
 	newWaylandEGLContext = func(w *window) (context, error) {
 		disp := egl.NativeDisplayType(unsafe.Pointer(w.display()))
-		ctx, err := egl.NewContext(disp)
+		ctx, err := egl.NewContext(egl.PlatformWayland, disp)
 		if err != nil {
 			return nil, err
 		}

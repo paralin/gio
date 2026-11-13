@@ -134,6 +134,12 @@ func eglGetDisplay(disp NativeDisplayType) _EGLDisplay {
 	return _EGLDisplay(d)
 }
 
+// eglGetPlatformDisplay reports no platform display: Windows has one
+// native display type, so eglGetDisplay needs no platform.
+func eglGetPlatformDisplay(Platform, NativeDisplayType) (_EGLDisplay, bool) {
+	return nilEGLDisplay, false
+}
+
 func eglGetError() _EGLint {
 	e, _, _ := _eglGetError.Call()
 	return _EGLint(e)

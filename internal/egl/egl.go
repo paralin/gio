@@ -36,6 +36,20 @@ var (
 	EGL_DEFAULT_DISPLAY NativeDisplayType
 )
 
+// Platform names the window system a native display belongs to, as an
+// EGL_PLATFORM_*_KHR value.
+type Platform uint32
+
+const (
+	// PlatformUnknown leaves EGL to infer the platform from the native
+	// display.
+	PlatformUnknown Platform = 0
+	// PlatformX11 marks a native display as an Xlib Display.
+	PlatformX11 Platform = 0x31D5
+	// PlatformWayland marks a native display as a wl_display.
+	PlatformWayland Platform = 0x31D8
+)
+
 const (
 	_EGL_ALPHA_SIZE             = 0x3021
 	_EGL_BLUE_SIZE              = 0x3022
@@ -72,19 +86,32 @@ func (c *Context) Present() error {
 	return nil
 }
 
-func NewContext(disp NativeDisplayType) (*Context, error) {
+// NewContext creates a context on the native display disp of the given
+// platform. When the EGL implementation supports platform displays, the
+// platform is named explicitly: eglGetDisplay must otherwise guess it from
+// the pointer, and a vendor library that guesses wrong reads one window
+// system's display as another's and crashes. A named platform that EGL
+// rejects is an error, so the caller can try another window system.
+func NewContext(platform Platform, disp NativeDisplayType) (*Context, error) {
 	if err := loadEGL(); err != nil {
 		return nil, err
 	}
-	eglDisp := eglGetDisplay(disp)
-	// eglGetDisplay can return EGL_NO_DISPLAY yet no error
-	// (EGL_SUCCESS), in which case a default EGL display might be
-	// available.
-	if eglDisp == nilEGLDisplay {
-		eglDisp = eglGetDisplay(EGL_DEFAULT_DISPLAY)
-	}
-	if eglDisp == nilEGLDisplay {
-		return nil, fmt.Errorf("eglGetDisplay failed: 0x%x", eglGetError())
+	eglDisp, named := eglGetPlatformDisplay(platform, disp)
+	if named {
+		if eglDisp == nilEGLDisplay {
+			return nil, fmt.Errorf("eglGetPlatformDisplay(0x%x) failed: 0x%x", uint32(platform), eglGetError())
+		}
+	} else {
+		eglDisp = eglGetDisplay(disp)
+		// eglGetDisplay can return EGL_NO_DISPLAY yet no error
+		// (EGL_SUCCESS), in which case a default EGL display might be
+		// available.
+		if eglDisp == nilEGLDisplay {
+			eglDisp = eglGetDisplay(EGL_DEFAULT_DISPLAY)
+		}
+		if eglDisp == nilEGLDisplay {
+			return nil, fmt.Errorf("eglGetDisplay failed: 0x%x", eglGetError())
+		}
 	}
 	eglCtx, err := createContext(eglDisp)
 	if err != nil {

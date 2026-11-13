@@ -24,7 +24,7 @@ type androidContext struct {
 
 func init() {
 	newAndroidGLESContext = func(w *window) (context, error) {
-		ctx, err := egl.NewContext(nil)
+		ctx, err := egl.NewContext(egl.PlatformUnknown, nil)
 		if err != nil {
 			return nil, err
 		}

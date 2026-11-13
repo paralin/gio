@@ -15,8 +15,35 @@ package egl
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+
+// gio_eglGetPlatformDisplay calls eglGetPlatformDisplay when khr is set and
+// eglGetPlatformDisplayEXT otherwise, loading either at run time since the
+// link library may predate EGL 1.5. It sets *ok to 0 when the entry point
+// is missing.
+static EGLDisplay gio_eglGetPlatformDisplay(int khr, EGLenum platform, void *native, int *ok) {
+	*ok = 1;
+	if (khr) {
+		PFNEGLGETPLATFORMDISPLAYPROC get = (PFNEGLGETPLATFORMDISPLAYPROC)eglGetProcAddress("eglGetPlatformDisplay");
+		if (get != NULL) {
+			return get(platform, native, NULL);
+		}
+	} else {
+		PFNEGLGETPLATFORMDISPLAYEXTPROC get = (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
+		if (get != NULL) {
+			return get(platform, native, NULL);
+		}
+	}
+	*ok = 0;
+	return EGL_NO_DISPLAY;
+}
 */
 import "C"
+
+import (
+	"slices"
+	"strings"
+	"unsafe"
+)
 
 type (
 	_EGLint           = C.EGLint
@@ -96,6 +123,46 @@ func eglQueryString(disp _EGLDisplay, name _EGLint) string {
 
 func eglGetDisplay(disp NativeDisplayType) _EGLDisplay {
 	return C.eglGetDisplay(disp)
+}
+
+// eglGetPlatformDisplay returns the display for disp on the named platform,
+// with named false when the platform is unknown or EGL lacks the client
+// extension for it.
+func eglGetPlatformDisplay(platform Platform, disp NativeDisplayType) (_EGLDisplay, bool) {
+	var name string
+	switch platform {
+	case PlatformX11:
+		name = "platform_x11"
+	case PlatformWayland:
+		name = "platform_wayland"
+	default:
+		return nilEGLDisplay, false
+	}
+	// Client extensions are queried on EGL_NO_DISPLAY; without
+	// EGL_EXT_client_extensions the query fails and returns NULL.
+	exts := C.eglQueryString(nilEGLDisplay, C.EGL_EXTENSIONS)
+	if exts == nil {
+		return nilEGLDisplay, false
+	}
+	list := strings.Fields(C.GoString(exts))
+	for _, khr := range []bool{true, false} {
+		ext := "EGL_EXT_" + name
+		if khr {
+			ext = "EGL_KHR_" + name
+		}
+		if !slices.Contains(list, ext) {
+			continue
+		}
+		var k, ok C.int
+		if khr {
+			k = 1
+		}
+		d := C.gio_eglGetPlatformDisplay(k, C.EGLenum(platform), unsafe.Pointer(disp), &ok)
+		if ok != 0 {
+			return d, true
+		}
+	}
+	return nilEGLDisplay, false
 }
 
 func eglCreateWindowSurface(disp _EGLDisplay, conf _EGLConfig, win NativeWindowType, attribs []_EGLint) _EGLSurface {

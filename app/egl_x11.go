@@ -18,7 +18,7 @@ type x11Context struct {
 func init() {
 	newX11EGLContext = func(w *x11Window) (context, error) {
 		disp := egl.NativeDisplayType(unsafe.Pointer(w.display()))
-		ctx, err := egl.NewContext(disp)
+		ctx, err := egl.NewContext(egl.PlatformX11, disp)
 		if err != nil {
 			return nil, err
 		}

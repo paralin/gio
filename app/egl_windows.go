@@ -18,7 +18,7 @@ func init() {
 		priority: 2,
 		initializer: func(w *window) (context, error) {
 			disp := egl.NativeDisplayType(w.HDC())
-			ctx, err := egl.NewContext(disp)
+			ctx, err := egl.NewContext(egl.PlatformUnknown, disp)
 			if err != nil {
 				return nil, err
 			}
