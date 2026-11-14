@@ -620,6 +620,10 @@ var (
 	DXGI_DEBUG_ALL = GUID{0xe48ae283, 0xda80, 0x490b, 0x87, 0xe6, 0x43, 0xe9, 0xa9, 0xcf, 0xda, 0x8}
 )
 
+// The procedures load on first use. Each call looks its procedure up first
+// and returns the failure, so a system whose d3d11.dll does not load, such as
+// a Wine prefix without its Direct3D libraries, lets the caller try another
+// GPU driver instead of panicking.
 var (
 	d3d11 = windows.NewLazySystemDLL("d3d11.dll")
 
@@ -745,6 +749,9 @@ func CreateDevice(driverType uint32, flags uint32) (*Device, *DeviceContext, uin
 		ctx     *DeviceContext
 		featLvl uint32
 	)
+	if err := _D3D11CreateDevice.Find(); err != nil {
+		return nil, nil, 0, err
+	}
 	r, _, _ := _D3D11CreateDevice.Call(
 		0,                                 // pAdapter
 		uintptr(driverType),               // driverType
@@ -770,6 +777,9 @@ func CreateDeviceAndSwapChain(driverType uint32, flags uint32, swapDesc *DXGI_SW
 		swchain *IDXGISwapChain
 		featLvl uint32
 	)
+	if err := _D3D11CreateDeviceAndSwapChain.Find(); err != nil {
+		return nil, nil, nil, 0, err
+	}
 	r, _, _ := _D3D11CreateDeviceAndSwapChain.Call(
 		0,                                 // pAdapter
 		uintptr(driverType),               // driverType
@@ -792,6 +802,9 @@ func CreateDeviceAndSwapChain(driverType uint32, flags uint32, swapDesc *DXGI_SW
 
 func DXGIGetDebugInterface1() (*IDXGIDebug, error) {
 	var dbg *IDXGIDebug
+	if err := _DXGIGetDebugInterface1.Find(); err != nil {
+		return nil, err
+	}
 	r, _, _ := _DXGIGetDebugInterface1.Call(
 		0, // Flags
 		uintptr(unsafe.Pointer(&IID_IDXGIDebug)),
